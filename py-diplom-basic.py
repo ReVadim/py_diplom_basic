@@ -1,6 +1,8 @@
 import requests
-from pprint import pprint
 import time
+import os
+import sys
+from pprint import pprint
 
 # ya_disk_api = input("input your REST API token: ")
 # owner_id = input("input your id: ")
@@ -10,6 +12,7 @@ with open('token.txt', 'r') as t, open('Ya_disk_api.txt', 'r') as y:
     ya_disk_api = y.read().strip()
 
 ya_url = 'https://cloud-api.yandex.net/v1/disk/'
+mypath = 'C:/Folder/'
 
 
 class VkSaver:
@@ -20,12 +23,13 @@ class VkSaver:
         self.version = '5.126'
         self.photo_stock = {}
         self.albums_list = {}
+        self.mypath = mypath
         self.params = {
             'access_token': self.token,
             'v': self.version,
         }
         if owner_id is None:
-            self.owner_id = requests.get(self.url+'users.get', self.params).json()['response'][0]['id']
+            self.owner_id = requests.get(self.url + 'users.get', self.params).json()['response'][0]['id']
 
     def get_albums(self, owner_id=None):
         """find all owner photo albums"""
@@ -42,6 +46,7 @@ class VkSaver:
         for items in response['items']:
             self.albums_list[str(items['id'])] = items['title']
         print(self.albums_list)
+        return self.albums_list
 
     def get_photo(self, user_id=None, album_id=None):
         if user_id is None:
@@ -54,7 +59,7 @@ class VkSaver:
             'photo_sizes': 1,
             'album_id': album_id
         }
-        response = requests.get(self.url+'photos.get', params={**self.params, **gp_params}).json()['response']
+        response = requests.get(self.url + 'photos.get', params={**self.params, **gp_params}).json()['response']
         time.sleep(0.4)
         count_photos = response['count']
         for items in response['items']:
@@ -63,31 +68,65 @@ class VkSaver:
 
         print(f"В альбоме {count_photos} фото")
         print(self.photo_stock)
+        return self.photo_stock
 
-    def get_max_photos(self):
-        pass
+    def save_photo(self, load_count: int):
+        i = 0
+        photo_for_load = dict()
+        # mypath = 'C:/Folder/'
+        try:
+            os.mkdir(self.mypath)
+        except FileExistsError:
+            self.mypath = self.mypath.rstrip('/') + '-1/'  # work directory
+            mypath = self.mypath.rstrip('/') + '-1/'  # work directory
+            os.mkdir(self.mypath)
+        for photo, url in self.photo_stock.items():
+            if i < load_count and i <= len(self.photo_stock):
+                filename = url[1].split('/')[-1].split('?')[0]
+                photo_for_load[filename] = url[1]
+                i += 1
+        count = 1
+        part_load = len(photo_for_load) / 10
+        percent = round(100 / len(photo_for_load))
+        rmdr = 100 - (len(photo_for_load) * percent)
+        for name, url in photo_for_load.items():
+            filepath = os.path.join(self.mypath, name)
+            part = int(count / part_load)
+            status = round(count * percent + rmdr)
+            r = requests.get(url, allow_redirects=True).content
+            with open(filepath, 'wb') as f:
+                f.write(r)
+            print(f"[{count} / {len(photo_for_load)}] {'##' * part + '--' * (10 - part)} {status} % || {name}\r")
+            time.sleep(.1)
+            count += 1
+        return "all photo downloaded"
 
-    def make_dir(self):
-        """make dir"""
-        dir_name = 'test_dir'  # need to create
-        make_dir_url = ya_url + 'resources'
-        requests.put(make_dir_url,
-                     params={"path": f"{dir_name}"},
-                     headers={"Authorization": f"OAuth {Ya_disk_api}"}
-                     )
+    # def make_dir(self):
+    #     """make dir"""
+    #     dir_name = 'test_dir'  # need to create
+    #     make_dir_url = ya_url + 'resources'
+    #     requests.put(make_dir_url,
+    #                  params={"path": f"{dir_name}"},
+    #                  headers={"Authorization": f"OAuth {Ya_disk_api}"}
+    #                  )
+    #     return f"Папка {dir_name} успешно создана"
 
 
 class YaUploader:
-    def __init__(self, api_token: str):
+    def __init__(self):
         self.headers = {"Authorization": f"OAuth {ya_disk_api}"}
+        self.file_path = mypath
 
-    def upload(self, file_path: str):
+    def upload(self, dir_path=None):
         """Метод загруджает файлы из папки на яндекс диск"""
-        my_dir = file_path.split('\\')
-        dir_name = my_dir[-1]
+        if dir_path is None:
+            dir_path = self.file_path
+        dir_name = dir_path.split('/')[-1]
+        print("dir name - ", dir_name)
         contents = []
         for item in os.walk(dir_path):
             contents.append(item)
+        print(contents)
         if contents:
             requests.put("https://cloud-api.yandex.net/v1/disk/resources",
                          params={"path": f"{dir_name}"},
@@ -109,7 +148,7 @@ class YaUploader:
                     except KeyError:
                         resp = requests.get(
                             "https://cloud-api.yandex.net/v1/disk/resources/upload",
-                            params={"path": f"{dir_name}/{elem+'copy'}"},
+                            params={"path": f"{dir_name}/{elem + 'copy'}"},
                             headers=self.headers
                         )
                         href = resp.json()["href"]
@@ -137,15 +176,7 @@ class YaUploader:
 
 vk1 = VkSaver()
 vk1.get_albums()
-# vk1.get_photo(None, 168628450)
 vk1.get_photo(None, int(input("Введите id альбома: ")))
-#
-#
-#
-#
-# """progress"""
-# part = int(count / part_way)
-# status = round(count * percent + ost)
-# print(f"[{count} / {len(files)}] {'##' * part + '--' * (10 - part)} {status} % || {elem}\r")
-# time.sleep(.1)
-# count += 1
+vk1.save_photo(int(input("Введите количество файлов для скачивания: ")))
+ya1 = YaUploader()
+ya1.upload()
